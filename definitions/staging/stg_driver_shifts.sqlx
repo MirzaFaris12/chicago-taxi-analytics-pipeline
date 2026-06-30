@@ -1,0 +1,90 @@
+config {
+  type: "table",
+  schema: "chicago_taxi_analytics",
+  description: "Reconstructs driver 'shifts' from raw trip timestamps, since the source dataset has no clock-in/clock-out data. A shift is a sequence of trips by the same taxi where no gap between consecutive trips exceeds 8 hours. A gap of 8+ hours is treated as a break, ending the shift. This is a general-purpose building block used by the Q2 overworkers analysis, but is independently useful for any shift-pattern analysis.",
+  columns: {
+    taxi_id: "Anonymized taxi/driver identifier.",
+    shift_id: "Synthetic identifier for this shift, unique per taxi_id (sequential integer per taxi, not globally unique alone -- use taxi_id + shift_id together).",
+    shift_start_timestamp: "Timestamp of the first trip's start in this shift.",
+    shift_end_timestamp: "Timestamp of the last trip's end in this shift.",
+    shift_duration_hours: "Total shift duration in hours, from first trip start to last trip end.",
+    trip_count_in_shift: "Number of trips completed during this shift.",
+    shift_start_date: "Calendar date (US/Chicago local) the shift began, used for daily/regularity analysis."
+  }
+}
+
+-- ============================================================================
+-- STAGING: Driver Shifts (reconstructed from trip gaps)
+-- ============================================================================
+-- METHODOLOGY:
+--   The source dataset has no shift/clock-in/clock-out data. We infer shifts
+--   from the pattern of trips per taxi:
+--
+--   1. Order all trips for a taxi chronologically by start time.
+--   2. Measure the gap between one trip's end and the next trip's start.
+--   3. If the gap is LESS than 8 hours, the two trips are considered part of
+--      the same continuous shift (the driver is still "on the clock" in some
+--      broad sense, even if idle between fares).
+--   4. If the gap is 8 HOURS OR MORE, that gap is treated as a break, and the
+--      next trip starts a new shift.
+--
+--   ASSUMPTION: the 8-hour threshold is taken directly from the question's
+--   own phrasing ("without taking at least 8 hours break"), making the
+--   break-detection threshold and the question's break definition identical
+--   by construction. This is a deliberate simplification -- in reality a
+--   driver could take a 7-hour break and we would not detect it as one,
+--   which is a conservative choice (it will tend to UNDERCOUNT breaks and
+--   OVERCOUNT shift length, making this an upper-bound estimate of
+--   overworking rather than an exact one).
+-- ============================================================================
+
+WITH ordered_trips AS (
+  SELECT
+    taxi_id,
+    trip_start_timestamp,
+    trip_end_timestamp,
+    LAG(trip_end_timestamp) OVER (
+      PARTITION BY taxi_id ORDER BY trip_start_timestamp
+    ) AS prev_trip_end
+  FROM ${ref("stg_taxi_trips")}
+),
+
+gap_flagged AS (
+  SELECT
+    *,
+    TIMESTAMP_DIFF(trip_start_timestamp, prev_trip_end, MINUTE) AS gap_minutes,
+    CASE
+      WHEN prev_trip_end IS NULL THEN 1
+      -- A null gap here would only occur if a trip's end timestamp itself
+      -- was null (rare). Treat as a shift
+      -- boundary rather than silently merging shifts across unknown time.
+      WHEN TIMESTAMP_DIFF(trip_start_timestamp, prev_trip_end, MINUTE) IS NULL THEN 1
+      WHEN TIMESTAMP_DIFF(trip_start_timestamp, prev_trip_end, MINUTE) >= 480 THEN 1
+      ELSE 0
+    END AS is_new_shift
+  FROM ordered_trips
+),
+
+shift_assigned AS (
+  SELECT
+    *,
+    SUM(is_new_shift) OVER (
+      PARTITION BY taxi_id ORDER BY trip_start_timestamp
+      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) AS shift_id
+  FROM gap_flagged
+)
+
+SELECT
+  taxi_id,
+  shift_id,
+  MIN(trip_start_timestamp) AS shift_start_timestamp,
+  MAX(trip_end_timestamp) AS shift_end_timestamp,
+  ROUND(
+    TIMESTAMP_DIFF(MAX(trip_end_timestamp), MIN(trip_start_timestamp), MINUTE) / 60.0,
+    2
+  ) AS shift_duration_hours,
+  COUNT(*) AS trip_count_in_shift,
+  DATE(MIN(trip_start_timestamp), "America/Chicago") AS shift_start_date
+FROM shift_assigned
+GROUP BY taxi_id, shift_id
