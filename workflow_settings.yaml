@@ -1,0 +1,5 @@
+defaultProject: project-55ddb663-3b7b-4837-a3b
+defaultDataset: chicago_taxi_analytics
+defaultLocation: US
+defaultAssertionDataset: dataform_assertions
+dataformCoreVersion: 3.0.52
