@@ -1,0 +1,49 @@
+config {
+  type: "table",
+  schema: "chicago_taxi_analytics",
+  description: "Bonus Insight 1: Payment type trends over time (annual). Tracks the shift from cash to card payments across the full 2013-2023 dataset. Business value: identifies the pace of cashless adoption, which informs decisions about payment terminal investment, driver incentive programs for card acceptance, and whether the fleet is keeping pace with consumer payment preferences.",
+  columns: {
+    year: "Calendar year.",
+    payment_type: "Payment method as reported by the source (e.g. Cash, Credit Card, Mobile, Prcard, Dispute, Unknown).",
+    trip_count: "Number of trips using this payment type in this year.",
+    total_revenue: "Total revenue (fare + tips + tolls + extras) from trips using this payment type in this year, in USD.",
+    avg_fare: "Average base fare for trips using this payment type in this year, in USD.",
+    avg_tip: "Average tip amount for trips using this payment type in this year, in USD. Note: cash tips are typically not captured in the dataset, so cash tip averages will be understated.",
+    pct_of_annual_trips: "This payment type's share of all trips in that year, as a percentage. The key metric for tracking cashless adoption over time.",
+    pct_of_annual_revenue: "This payment type's share of total annual revenue, as a percentage."
+  }
+}
+
+WITH annual_payment AS (
+  SELECT
+    EXTRACT(YEAR FROM trip_start_date) AS year,
+    COALESCE(NULLIF(TRIM(payment_type), ''), 'Unknown') AS payment_type,
+    COUNT(*) AS trip_count,
+    ROUND(SUM(trip_total), 2) AS total_revenue,
+    ROUND(AVG(fare), 2) AS avg_fare,
+    ROUND(AVG(tips), 2) AS avg_tip
+  FROM ${ref("stg_taxi_trips")}
+  GROUP BY year, payment_type
+),
+
+annual_totals AS (
+  SELECT
+    year,
+    SUM(trip_count) AS total_annual_trips,
+    SUM(total_revenue) AS total_annual_revenue
+  FROM annual_payment
+  GROUP BY year
+)
+
+SELECT
+  p.year,
+  p.payment_type,
+  p.trip_count,
+  p.total_revenue,
+  p.avg_fare,
+  p.avg_tip,
+  ROUND(SAFE_DIVIDE(p.trip_count, t.total_annual_trips) * 100, 2) AS pct_of_annual_trips,
+  ROUND(SAFE_DIVIDE(p.total_revenue, t.total_annual_revenue) * 100, 2) AS pct_of_annual_revenue
+FROM annual_payment p
+JOIN annual_totals t ON p.year = t.year
+ORDER BY p.year, p.trip_count DESC
