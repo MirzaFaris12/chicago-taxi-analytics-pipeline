@@ -1,0 +1,123 @@
+config {
+  type: "table",
+  schema: "chicago_taxi_analytics",
+  description: "Answers Question 3: whether US public holidays had a measurable impact on Chicago taxi trip volumes. For each holiday, compares actual trip count on the holiday against the average trip count on the same day of week in the same month across non-holiday days (weekday-adjusted baseline). A negative pct_change_vs_baseline means fewer trips than a typical same-weekday; positive means more trips than normal.",
+  columns: {
+    holiday_date: "The observed date of the holiday.",
+    holiday_name: "Name of the federal holiday.",
+    day_of_week: "Day of week name (e.g. Monday) of the holiday date.",
+    year: "Calendar year of the holiday.",
+    holiday_trip_count: "Actual number of taxi trips that started on the holiday date.",
+    baseline_avg_trips: "Average trip count on non-holiday days sharing the same day-of-week and month in the same year. This is the comparison baseline.",
+    pct_change_vs_baseline: "Percentage change: (holiday_trips - baseline_avg) / baseline_avg * 100. Negative = fewer trips than normal; positive = more trips than normal.",
+    abs_trip_difference: "Absolute difference in trips: holiday_trip_count minus baseline_avg_trips. Negative means fewer trips on the holiday."
+  }
+}
+
+-- ============================================================================
+-- MART: Q3 - Holiday Impact on Trip Volumes
+-- ============================================================================
+-- Question: "Do you think the public holidays in the US had an impact on the
+--            increase/decrease in trips?"
+--
+-- METHODOLOGY:
+--   1. Build a daily trip count from stg_taxi_trips (one row per date,
+--      counting trips that STARTED on that date).
+--   2. Join against us_federal_holidays (uploaded CSV table) to flag which
+--      dates are holidays.
+--   3. For each holiday, compute a BASELINE: the average trip count on
+--      non-holiday days in the same year, same month, same day-of-week.
+--      (e.g. Christmas 2023 falls on a Monday, so baseline = average of
+--      all other non-holiday Mondays in December 2023).
+--      This controls for day-of-week effects, seasonal patterns, and
+--      year-over-year growth trends simultaneously.
+--   4. Compute pct_change and abs_difference to quantify impact direction
+--      and magnitude per holiday per year.
+--
+-- ASSUMPTIONS:
+--   1. Trip counts are based on trip_start_date (when the trip began),
+--      consistent with all other models in this pipeline.
+--   2. Full 2013-2023 dataset is used (not just Q4 2023) since holiday
+--      impact is a long-run pattern question best answered across all
+--      available years, and multiple years of each holiday produce more
+--      stable baselines.
+--   3. The baseline excludes ALL holiday dates to avoid contaminating
+--      the normal-day average with other holiday effects.
+--   4. Holiday reference data source: US Office of Personnel Management
+--      (OPM) observed holiday schedule, uploaded as a static CSV table.
+--      Weekend adjustment rule: Saturday holiday -> observed Friday;
+--      Sunday holiday -> observed Monday.
+-- ============================================================================
+
+WITH daily_trips AS (
+  SELECT
+    trip_start_date,
+    EXTRACT(YEAR FROM trip_start_date) AS year,
+    EXTRACT(MONTH FROM trip_start_date) AS month,
+    FORMAT_DATE('%A', trip_start_date) AS day_of_week,
+    COUNT(*) AS trip_count
+  FROM ${ref("stg_taxi_trips")}
+  GROUP BY trip_start_date
+),
+
+holidays AS (
+  SELECT
+    holiday_date,
+    holiday_name
+  FROM `project-55ddb663-3b7b-4837-a3b.chicago_taxi_analytics.us_federal_holidays`
+),
+
+daily_with_holiday_flag AS (
+  SELECT
+    d.trip_start_date,
+    d.year,
+    d.month,
+    d.day_of_week,
+    d.trip_count,
+    h.holiday_name,
+    CASE WHEN h.holiday_date IS NOT NULL THEN TRUE ELSE FALSE END AS is_holiday
+  FROM daily_trips d
+  LEFT JOIN holidays h ON d.trip_start_date = h.holiday_date
+),
+
+baseline AS (
+  SELECT
+    year,
+    month,
+    day_of_week,
+    ROUND(AVG(trip_count), 2) AS avg_non_holiday_trips
+  FROM daily_with_holiday_flag
+  WHERE is_holiday = FALSE
+  GROUP BY year, month, day_of_week
+),
+
+holiday_days_only AS (
+  SELECT
+    d.trip_start_date AS holiday_date,
+    d.holiday_name,
+    d.day_of_week,
+    d.year,
+    d.trip_count AS holiday_trip_count,
+    b.avg_non_holiday_trips AS baseline_avg_trips
+  FROM daily_with_holiday_flag d
+  JOIN baseline b
+    ON d.year = b.year
+    AND d.month = b.month
+    AND d.day_of_week = b.day_of_week
+  WHERE d.is_holiday = TRUE
+)
+
+SELECT
+  holiday_date,
+  holiday_name,
+  day_of_week,
+  year,
+  holiday_trip_count,
+  baseline_avg_trips,
+  ROUND(
+    SAFE_DIVIDE(holiday_trip_count - baseline_avg_trips, baseline_avg_trips) * 100,
+    2
+  ) AS pct_change_vs_baseline,
+  ROUND(holiday_trip_count - baseline_avg_trips, 0) AS abs_trip_difference
+FROM holiday_days_only
+ORDER BY holiday_date
