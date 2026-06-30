@@ -1,0 +1,78 @@
+config {
+  type: "table",
+  schema: "chicago_taxi_analytics",
+  description: "Answers Question 1: the top 100 taxi IDs by total tip revenue earned over the last 3 months of available data in the dataset. Ranking is by raw dollar amount of tips, not tip rate/percentage.",
+  columns: {
+    taxi_id: "Anonymized taxi/driver identifier.",
+    total_trips: "Number of trips completed by this taxi in the analysis window.",
+    total_tips: "Total tip revenue earned by this taxi in the analysis window, in USD. This is the ranking metric.",
+    total_fare_revenue: "Total base fare revenue (excluding tips) earned in the analysis window, in USD.",
+    total_revenue: "Total revenue (fare + tips + tolls + extras) earned in the analysis window, in USD.",
+    avg_tip_per_trip: "Average tip amount per trip, in USD. Provided for context -- a high earner with few trips has a very different profile than one with many trips.",
+    tip_rate_pct: "Tips as a percentage of fare revenue. Provided for context only; ranking is NOT based on this metric (see config description).",
+    tip_rank: "Rank from 1 (highest total tips) to 100, based on total_tips."
+  }
+}
+
+-- ============================================================================
+-- MART: Q1 - Top 100 Tip Earners
+-- ============================================================================
+-- Question: "Who are the top 100 'tip earners', the taxi IDs that earn more
+--            money than others for the last 3 months."
+--
+-- ASSUMPTIONS / METHODOLOGY:
+--   1. "Last 3 months" is interpreted relative to the LATEST DATE PRESENT IN
+--      THE DATASET (2023-12-31), not the current real-world date. The
+--      dataset has not been updated since 2023, so a window relative to
+--      today would return zero rows. Window used: 2023-10-01 to 2023-12-31
+--      inclusive (full calendar quarter, Q4 2023).
+--   2. "Earn more money" is interpreted as the question's stated metric --
+--      TIPS specifically -- ranked by raw dollar total, not tip rate/
+--      percentage. Tip rate is included as a supporting column for context
+--      but does not affect ranking, since a driver doing few trips at 100%
+--      tip rate earns less in absolute terms than a high-volume driver at a
+--      lower rate, and the question asks who "earns more money."
+--   3. Ranking is per taxi_id (anonymized driver/medallion identifier),
+--      consistent with how the source dataset privacy-masks vehicle
+--      identity, and consistent with how the question is phrased ("taxi
+--      IDs that earn more").
+--   4. Reads from stg_taxi_trips, so all base-layer cleaning (deduplication,
+--      invalid fare/mileage removal, etc.) is already applied upstream.
+-- ============================================================================
+
+WITH window_trips AS (
+  SELECT
+    taxi_id,
+    fare,
+    tips,
+    tolls,
+    extras,
+    trip_total
+  FROM ${ref("stg_taxi_trips")}
+  WHERE trip_start_date BETWEEN '2023-10-01' AND '2023-12-31'
+),
+
+per_taxi AS (
+  SELECT
+    taxi_id,
+    COUNT(*) AS total_trips,
+    ROUND(SUM(tips), 2) AS total_tips,
+    ROUND(SUM(fare), 2) AS total_fare_revenue,
+    ROUND(SUM(trip_total), 2) AS total_revenue,
+    ROUND(SUM(tips) / COUNT(*), 2) AS avg_tip_per_trip,
+    ROUND(SAFE_DIVIDE(SUM(tips), SUM(fare)) * 100, 2) AS tip_rate_pct
+  FROM window_trips
+  GROUP BY taxi_id
+),
+
+ranked AS (
+  SELECT
+    *,
+    RANK() OVER (ORDER BY total_tips DESC) AS tip_rank
+  FROM per_taxi
+)
+
+SELECT *
+FROM ranked
+WHERE tip_rank <= 100
+ORDER BY tip_rank
