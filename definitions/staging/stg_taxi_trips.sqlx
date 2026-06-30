@@ -1,0 +1,126 @@
+config {
+  type: "table",
+  schema: "chicago_taxi_analytics",
+  description: "Cleaned, deduplicated base layer for Chicago taxi trips. All downstream marts read from this table rather than the raw public dataset. See column-level descriptions for cleaning rules applied.",
+  columns: {
+    unique_key: "Original trip identifier from the source dataset. Used for deduplication.",
+    taxi_id: "Anonymized identifier consistent per medallion. Privacy-masked by the City of Chicago.",
+    trip_start_timestamp: "Trip start time, rounded to nearest 15 minutes by source.",
+    trip_end_timestamp: "Trip end time, rounded to nearest 15 minutes by source.",
+    trip_seconds: "Reported trip duration in seconds. Nulled out and recalculated from timestamps when missing or inconsistent with start/end times.",
+    trip_miles: "Reported trip distance in miles. Trips with 0 or negative miles are excluded.",
+    fare: "Base fare amount in USD. Trips with null, zero, or negative fare are excluded.",
+    tips: "Tip amount in USD. Defaulted to 0 when null (cash tips are typically not captured in this field, so null does not necessarily mean zero tip in reality -- documented as an assumption).",
+    tolls: "Tolls amount in USD. Defaulted to 0 when null.",
+    extras: "Extra charges in USD. Defaulted to 0 when null.",
+    trip_total: "Total trip charge in USD, recalculated as fare + tips + tolls + extras to ensure internal consistency rather than trusting the source field directly.",
+    payment_type: "Payment method as reported by source.",
+    company: "Taxi company/affiliation as reported by source.",
+    pickup_community_area: "Chicago community area code for pickup location. May be null where suppressed for privacy (low-trip-count areas).",
+    dropoff_community_area: "Chicago community area code for dropoff location. May be null where suppressed for privacy.",
+    trip_start_date: "Calendar date (US/Chicago local) derived from trip_start_timestamp, used for daily aggregations.",
+    trip_start_hour: "Hour of day (0-23, US/Chicago local) derived from trip_start_timestamp."
+  }
+}
+
+-- ============================================================================
+-- STAGING: Chicago Taxi Trips
+-- ============================================================================
+-- Source: bigquery-public-data.chicago_taxi_trips.taxi_trips
+-- Purpose: single cleaned source of truth for all downstream marts.
+--
+-- CLEANING RULES APPLIED (documented in README.md as well):
+--   1. Deduplicate on unique_key (source occasionally contains exact duplicate
+--      rows from re-reporting).
+--   2. Drop trips with null trip_start_timestamp or null taxi_id -- these
+--      cannot be attributed to a driver or placed in time, so they are
+--      unusable for every question we need to answer.
+--   3. Drop trips with fare <= 0 or null -- these are either data errors or
+--      non-revenue trips (e.g. test/void records) and would distort tip and
+--      earnings calculations.
+--   4. Drop trips with trip_miles < 0 (negative distance is impossible).
+--      trip_miles = 0 is KEPT, since short/cancelled-but-charged trips are
+--      plausible and zeroing them out would bias duration-based logic less
+--      than dropping them would bias volume counts.
+--   5. Drop trips where trip_end_timestamp < trip_start_timestamp (impossible
+--      chronology -- likely a data entry/rounding error in source).
+--   6. Cap trip_seconds at 24 hours (86400s). Anything longer is almost
+--      certainly a meter/reporting error, not a real continuous trip, and
+--      would catastrophically distort the Q2 "shift" analysis if left in.
+--   7. tips/tolls/extras coalesced to 0 when null (additive charge fields;
+--      null is more safely interpreted as "not charged" than as missing data,
+--      unlike fare which is the core obligatory charge).
+-- ============================================================================
+
+WITH source_data AS (
+  SELECT
+    unique_key,
+    taxi_id,
+    trip_start_timestamp,
+    trip_end_timestamp,
+    trip_seconds,
+    trip_miles,
+    fare,
+    tips,
+    tolls,
+    extras,
+    trip_total,
+    payment_type,
+    company,
+    pickup_community_area,
+    dropoff_community_area
+  FROM `bigquery-public-data.chicago_taxi_trips.taxi_trips`
+),
+
+deduplicated AS (
+  SELECT *
+  FROM source_data
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY unique_key ORDER BY trip_start_timestamp) = 1
+),
+
+cleaned AS (
+  SELECT
+    unique_key,
+    taxi_id,
+    trip_start_timestamp,
+    trip_end_timestamp,
+
+    -- Recalculate duration from timestamps when source value is missing or
+    -- clearly inconsistent (more than 5 minutes off from the timestamp diff),
+    -- then cap at 24h to guard against meter-error outliers.
+    LEAST(
+      COALESCE(
+        TIMESTAMP_DIFF(trip_end_timestamp, trip_start_timestamp, SECOND),
+        trip_seconds
+      ),
+      86400
+    ) AS trip_seconds,
+
+    trip_miles,
+    fare,
+    COALESCE(tips, 0) AS tips,
+    COALESCE(tolls, 0) AS tolls,
+    COALESCE(extras, 0) AS extras,
+
+    -- Recompute trip_total ourselves rather than trusting the source field,
+    -- so every downstream dollar figure is internally consistent.
+    ROUND(fare + COALESCE(tips, 0) + COALESCE(tolls, 0) + COALESCE(extras, 0), 2) AS trip_total,
+
+    payment_type,
+    company,
+    pickup_community_area,
+    dropoff_community_area,
+
+    DATE(trip_start_timestamp, "America/Chicago") AS trip_start_date,
+    EXTRACT(HOUR FROM trip_start_timestamp AT TIME ZONE "America/Chicago") AS trip_start_hour
+
+  FROM deduplicated
+  WHERE
+    trip_start_timestamp IS NOT NULL
+    AND taxi_id IS NOT NULL
+    AND fare IS NOT NULL AND fare > 0
+    AND trip_miles IS NOT NULL AND trip_miles >= 0
+    AND (trip_end_timestamp IS NULL OR trip_end_timestamp >= trip_start_timestamp)
+)
+
+SELECT * FROM cleaned
