@@ -164,10 +164,6 @@ Identifies when and where demand is highest to enable data-driven driver deploym
 
 ## How to Run
 
-### Prerequisites
-- GCP project with BigQuery + Dataform APIs enabled and billing linked
-- Dataform service account with BigQuery Data Editor role
-
 ### Steps
 1. Clone this repo and link it to a new Dataform repository in GCP Console
 2. Create a development workspace
