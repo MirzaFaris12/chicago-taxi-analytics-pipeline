@@ -1,10 +1,10 @@
 config {
   type: "table",
   schema: "chicago_taxi_analytics",
-  description: "Reconstructs driver 'shifts' from raw trip timestamps, since the source dataset has no clock-in/clock-out data. A shift is a sequence of trips by the same taxi where no gap between consecutive trips exceeds 8 hours. A gap of 8+ hours is treated as a break, ending the shift. This is a general-purpose building block used by the Q2 overworkers analysis, but is independently useful for any shift-pattern analysis.",
+  description: "Reconstructs driver 'shifts' from raw trip timestamps, since the source dataset has no clock-in/clock-out data. A shift is a sequence of trips by the same taxi where no gap between consecutive trips exceeds 8 hours. A gap of 8+ hours is treated as a break, ending the shift. This is a general building block used by the Q2 overworkers analysis, but is independently useful for any shift-pattern analysis.",
   columns: {
     taxi_id: "Anonymized taxi/driver identifier.",
-    shift_id: "Synthetic identifier for this shift, unique per taxi_id (sequential integer per taxi, not globally unique alone -- use taxi_id + shift_id together).",
+    shift_id: "Synthetic identifier for this shift, unique per taxi_id (sequential integer per taxi, not globally unique alone, use taxi_id + shift_id together).",
     shift_start_timestamp: "Timestamp of the first trip's start in this shift.",
     shift_end_timestamp: "Timestamp of the last trip's end in this shift.",
     shift_duration_hours: "Total shift duration in hours, from first trip start to last trip end.",
@@ -17,7 +17,7 @@ config {
 -- STAGING: Driver Shifts (reconstructed from trip gaps)
 -- ============================================================================
 -- METHODOLOGY:
---   The source dataset has no shift/clock-in/clock-out data. We infer shifts
+--   The source dataset has no shift/clock-in/clock-out data. We deduce shifts
 --   from the pattern of trips per taxi:
 --
 --   1. Order all trips for a taxi chronologically by start time.
@@ -30,12 +30,11 @@ config {
 --
 --   ASSUMPTION: the 8-hour threshold is taken directly from the question's
 --   own phrasing ("without taking at least 8 hours break"), making the
---   break-detection threshold and the question's break definition identical
---   by construction. This is a deliberate simplification -- in reality a
+--   break detection threshold and the question's break definition identical
+--   by construction. This is a needed simplification while in reality a
 --   driver could take a 7-hour break and we would not detect it as one,
---   which is a conservative choice (it will tend to UNDERCOUNT breaks and
---   OVERCOUNT shift length, making this an upper-bound estimate of
---   overworking rather than an exact one).
+--   (it will tend to UNDERCOUNT breaks and OVERCOUNT shift length, making this an 
+--   upper-bound estimate of overworking rather than an exact one).
 -- ============================================================================
 
 WITH ordered_trips AS (
