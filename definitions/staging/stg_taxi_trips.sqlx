@@ -1,19 +1,19 @@
 config {
   type: "table",
   schema: "chicago_taxi_analytics",
-  description: "Cleaned, deduplicated base layer for Chicago taxi trips. All downstream marts read from this table rather than the raw public dataset. See column-level descriptions for cleaning rules applied.",
+  description: "Cleaned, deduplicated base layer for Chicago taxi trips. All downstream marts read from this table rather than the raw public dataset. See column-level descriptions for cleaning rules I applied.",
   columns: {
     unique_key: "Original trip identifier from the source dataset. Used for deduplication.",
-    taxi_id: "Anonymized identifier consistent per medallion. Privacy-masked by the City of Chicago.",
+    taxi_id: "Anonymized identifier.",
     trip_start_timestamp: "Trip start time, rounded to nearest 15 minutes by source.",
     trip_end_timestamp: "Trip end time, rounded to nearest 15 minutes by source.",
     trip_seconds: "Reported trip duration in seconds. Nulled out and recalculated from timestamps when missing or inconsistent with start/end times.",
     trip_miles: "Reported trip distance in miles. Trips with 0 or negative miles are excluded.",
     fare: "Base fare amount in USD. Trips with null, zero, or negative fare are excluded.",
-    tips: "Tip amount in USD. Defaulted to 0 when null (cash tips are typically not captured in this field, so null does not necessarily mean zero tip in reality -- documented as an assumption).",
+    tips: "Tip amount in USD. Defaulted to 0 when null (cash tips are typically not captured in this field, so null does not necessarily mean zero tip in reality, this is documented as an assumption).",
     tolls: "Tolls amount in USD. Defaulted to 0 when null.",
     extras: "Extra charges in USD. Defaulted to 0 when null.",
-    trip_total: "Total trip charge in USD, recalculated as fare + tips + tolls + extras to ensure internal consistency rather than trusting the source field directly.",
+    trip_total: "Total trip charge in USD, recalculated as fare + tips + tolls + extras to ensure internal consistency rather than trusting the source directly.",
     payment_type: "Payment method as reported by source.",
     company: "Taxi company/affiliation as reported by source.",
     pickup_community_area: "Chicago community area code for pickup location. May be null where suppressed for privacy (low-trip-count areas).",
@@ -32,24 +32,23 @@ config {
 -- CLEANING RULES APPLIED (documented in README.md as well):
 --   1. Deduplicate on unique_key (source occasionally contains exact duplicate
 --      rows from re-reporting).
---   2. Drop trips with null trip_start_timestamp or null taxi_id -- these
+--   2. Drop trips with null trip_start_timestamp or null taxi_id, these
 --      cannot be attributed to a driver or placed in time, so they are
 --      unusable for every question we need to answer.
---   3. Drop trips with fare <= 0 or null -- these are either data errors or
+--   3. Drop trips with fare <= 0 or null, these are either data errors or
 --      non-revenue trips (e.g. test/void records) and would distort tip and
 --      earnings calculations.
 --   4. Drop trips with trip_miles < 0 (negative distance is impossible).
---      trip_miles = 0 is KEPT, since short/cancelled-but-charged trips are
---      plausible and zeroing them out would bias duration-based logic less
+--      trip_miles = 0 is KEPT, since short/cancelled but charged trips are
+--      possible and zeroing them out would cause a bias in duration based logic less
 --      than dropping them would bias volume counts.
 --   5. Drop trips where trip_end_timestamp < trip_start_timestamp (impossible
---      chronology -- likely a data entry/rounding error in source).
+--      as it likely caused by a data entry/rounding error in source).
 --   6. Cap trip_seconds at 24 hours (86400s). Anything longer is almost
 --      certainly a meter/reporting error, not a real continuous trip, and
---      would catastrophically distort the Q2 "shift" analysis if left in.
---   7. tips/tolls/extras coalesced to 0 when null (additive charge fields;
---      null is more safely interpreted as "not charged" than as missing data,
---      unlike fare which is the core obligatory charge).
+--      would distort the Q2 "shift" analysis if left in.
+--   7. tips/tolls/extras changed to 0 when null ( null is more safely interpreted as "not charged"
+--      than as missing data, unlike fare which is the obligatory charge).
 -- ============================================================================
 
 WITH source_data AS (
