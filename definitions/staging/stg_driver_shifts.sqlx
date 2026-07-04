@@ -69,7 +69,7 @@ shift_assigned AS ( -- take running total of all 1s and 0s and add them to shift
     *,
     SUM(is_new_shift) OVER (
       PARTITION BY taxi_id ORDER BY trip_start_timestamp
-      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW --start from the very first row of this driver and add up to the current row
     ) AS shift_id -- assign here to shift_id
   FROM gap_flagged
 )
