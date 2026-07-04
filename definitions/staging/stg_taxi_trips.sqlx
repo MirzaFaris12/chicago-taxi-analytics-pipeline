@@ -71,7 +71,7 @@ WITH source_data AS (
   FROM `bigquery-public-data.chicago_taxi_trips.taxi_trips`
 ),
 
-deduplicated AS (
+deduplicated AS ( -- deduplicate the unique_key as we want to avoid redundancy due to rereport for taxi driver's trips
   SELECT *
   FROM source_data
   QUALIFY ROW_NUMBER() OVER (PARTITION BY unique_key ORDER BY trip_start_timestamp) = 1
@@ -92,18 +92,18 @@ cleaned AS (
         TIMESTAMP_DIFF(trip_end_timestamp, trip_start_timestamp, SECOND),
         trip_seconds
       ),
-      86400
+      86400 -- capped value at 24 hrs
     ) AS trip_seconds,
 
     trip_miles,
     fare,
-    COALESCE(tips, 0) AS tips,
+    COALESCE(tips, 0) AS tips, -- coalescing tips zero helps in preventing return of null value when driver's row contains null due to cash tips
     COALESCE(tolls, 0) AS tolls,
     COALESCE(extras, 0) AS extras,
 
     -- Recompute trip_total ourselves rather than trusting the source field,
     -- so every downstream dollar figure is internally consistent.
-    ROUND(fare + COALESCE(tips, 0) + COALESCE(tolls, 0) + COALESCE(extras, 0), 2) AS trip_total,
+    ROUND(fare + COALESCE(tips, 0) + COALESCE(tolls, 0) + COALESCE(extras, 0), 2) AS trip_total, -- ensure consistency in actual trip fare instead of relying in trip_total
 
     payment_type,
     company,
