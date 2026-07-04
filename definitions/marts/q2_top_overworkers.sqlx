@@ -56,7 +56,7 @@ WITH window_shifts AS (
     shift_duration_hours,
     trip_count_in_shift
   FROM ${ref("stg_driver_shifts")}
-  WHERE shift_start_date BETWEEN '2023-10-01' AND '2023-12-31'
+  WHERE shift_start_date BETWEEN '2023-10-01' AND '2023-12-31' -- Q4 2023
 ),
 
 per_taxi AS (
@@ -76,14 +76,14 @@ per_taxi AS (
 scored AS (
   SELECT
     *,
-    ROUND(long_shifts_count * (long_shift_rate_pct / 100.0), 2) AS overwork_score
-  FROM per_taxi
+    ROUND(long_shifts_count * (long_shift_rate_pct / 100.0), 2) AS overwork_score -- calculating overwork score
+  FROM per_taxi 
 ),
 
 ranked AS (
   SELECT
     *,
-    RANK() OVER (ORDER BY overwork_score DESC) AS overwork_rank
+    RANK() OVER (ORDER BY overwork_score DESC) AS overwork_rank // -- when overwork score same for two drivers can be categorised as ties
   FROM scored
 )
 
