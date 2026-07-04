@@ -42,13 +42,13 @@ WITH ordered_trips AS (
     taxi_id,
     trip_start_timestamp,
     trip_end_timestamp,
-    LAG(trip_end_timestamp) OVER (
-      PARTITION BY taxi_id ORDER BY trip_start_timestamp
-    ) AS prev_trip_end
+    LAG(trip_end_timestamp) OVER (  -- Think of it as standing in queue, LAG tap the person's in front and ask wehn does ur trip end
+      PARTITION BY taxi_id ORDER BY trip_start_timestamp 
+    ) AS prev_trip_end -- stored here
   FROM ${ref("stg_taxi_trips")}
 ),
 
-gap_flagged AS (
+gap_flagged AS ( -- Help in identifying shift as 1 and 0, if gap between prev shift ended and brand new one is more than 480 minutes 1 if not 0
   SELECT
     *,
     TIMESTAMP_DIFF(trip_start_timestamp, prev_trip_end, MINUTE) AS gap_minutes,
@@ -64,13 +64,13 @@ gap_flagged AS (
   FROM ordered_trips
 ),
 
-shift_assigned AS (
+shift_assigned AS ( -- take running total of all 1s and 0s and add them to shift counter, running sum instead of loop
   SELECT
     *,
     SUM(is_new_shift) OVER (
       PARTITION BY taxi_id ORDER BY trip_start_timestamp
       ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-    ) AS shift_id
+    ) AS shift_id -- assign here to shift_id
   FROM gap_flagged
 )
 
@@ -83,7 +83,7 @@ SELECT
     TIMESTAMP_DIFF(MAX(trip_end_timestamp), MIN(trip_start_timestamp), MINUTE) / 60.0,
     2
   ) AS shift_duration_hours,
-  COUNT(*) AS trip_count_in_shift,
-  DATE(MIN(trip_start_timestamp), "America/Chicago") AS shift_start_date
+  COUNT(*) AS trip_count_in_shift, 
+  DATE(MIN(trip_start_timestamp), "America/Chicago") AS shift_start_date -- chicago follow UTC-6 & UTC --5
 FROM shift_assigned
 GROUP BY taxi_id, shift_id
