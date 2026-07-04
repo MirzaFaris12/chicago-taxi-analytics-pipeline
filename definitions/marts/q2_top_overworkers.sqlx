@@ -1,10 +1,10 @@
 config {
   type: "table",
   schema: "chicago_taxi_analytics",
-  description: "Answers Question 2: the top 100 taxi IDs that 'overwork' -- defined as drivers who regularly work long shifts (12+ hours) without an 8-hour break, over the last 3 months of available data (Q4 2023). Ranking combines both the frequency of long shifts and total hours worked, since a single long shift is an anomaly but a pattern of them is overworking.",
+  description: "Answers Question 2: the top 100 taxi IDs that 'overwork' -- defined as drivers who regularly work long shifts (12+ hours) without an 8-hour break, over the last 3 months of available data (Q4 2023). Ranking combines both the frequency of long shifts and total hours worked.",
   columns: {
     taxi_id: "Anonymized taxi/driver identifier.",
-    total_shifts: "Total number of distinct shifts (as reconstructed by the 8-hour-gap rule) in the analysis window.",
+    total_shifts: "Total number of distinct shifts (as the 8 hour gap rule) in the analysis window.",
     long_shifts_count: "Number of shifts in the analysis window lasting 12 hours or more.",
     long_shift_rate_pct: "Percentage of this driver's shifts that were long shifts (long_shifts_count / total_shifts). Captures regularity/consistency of overworking, independent of how much they drive overall.",
     total_hours_worked: "Sum of all shift durations in the analysis window, in hours.",
@@ -30,9 +30,8 @@ config {
 --      any shift in this table is, by construction, a span of driving with
 --      no break of 8+ hours inside it.
 --   2. "Long shift" is defined as 12+ hours. Typical commercial driver
---      shifts run 8-12 hours; we treat 12+ as exceeding the normal range
---      and worth flagging, consistent with the question's prompt to
---      consider what a typical shift looks like.
+--      shifts run 8-12 hours so we treat 12+ as exceeding the normal range
+--      and worth flagging.
 --   3. "Regularly" is captured via long_shift_rate_pct (the proportion of a
 --      driver's shifts that are long), not just a raw count. A driver who
 --      works 50 shifts and 5 are long (10%) is a different risk profile
@@ -44,11 +43,10 @@ config {
 --      volume.
 --   4. Analysis window matches Q1 for comparability: 2023-10-01 to
 --      2023-12-31 (last 3 months of available data, relative to the
---      dataset's own max date, not real-world today).
+--      dataset's own max date).
 --   5. Shifts are attributed to the window based on shift_start_date. A
 --      shift that starts within the window but technically ends just after
---      it (e.g. starts 11pm Dec 31) is still counted -- excluding it would
---      arbitrarily truncate real driver behavior at a calendar boundary.
+--      it (e.g. starts 11pm Dec 31) is still counted.
 -- ============================================================================
 
 WITH window_shifts AS (
