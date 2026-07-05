@@ -49,7 +49,7 @@ WITH window_trips AS (
     extras,
     trip_total
   FROM ${ref("stg_taxi_trips")}
-  WHERE trip_start_date BETWEEN '2023-10-01' AND '2023-12-31'
+  WHERE trip_start_date BETWEEN '2023-10-01' AND '2023-12-31' -- already in local time
 ),
 
 per_taxi AS (
@@ -59,8 +59,8 @@ per_taxi AS (
     ROUND(SUM(tips), 2) AS total_tips,
     ROUND(SUM(fare), 2) AS total_fare_revenue,
     ROUND(SUM(trip_total), 2) AS total_revenue,
-    ROUND(SUM(tips) / COUNT(*), 2) AS avg_tip_per_trip,
-    ROUND(SAFE_DIVIDE(SUM(tips), SUM(fare)) * 100, 2) AS tip_rate_pct
+    ROUND(SUM(tips) / COUNT(*), 2) AS avg_tip_per_trip, -- can never be zero if driver exist because of count
+    ROUND(SAFE_DIVIDE(SUM(tips), SUM(fare)) * 100, 2) AS tip_rate_pct -- return null not gonna caused zero error
   FROM window_trips
   GROUP BY taxi_id
 ),
@@ -68,7 +68,7 @@ per_taxi AS (
 ranked AS (
   SELECT
     *,
-    RANK() OVER (ORDER BY total_tips DESC) AS tip_rank
+    RANK() OVER (ORDER BY total_tips DESC) AS tip_rank -- sort ties correctly and not ordering it by who comes first in row
   FROM per_taxi
 )
 
