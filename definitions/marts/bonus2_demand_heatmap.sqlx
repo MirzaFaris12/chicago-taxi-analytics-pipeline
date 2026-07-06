@@ -1,11 +1,11 @@
 config {
   type: "table",
   schema: "chicago_taxi_analytics",
-  description: "Bonus Insight 2: Trip demand by hour of day and pickup community area. Aggregated across the full 2013-2023 dataset. Business value: identifies when and where demand is highest, enabling data-driven driver deployment decisions -- putting more drivers in high-demand areas during peak hours reduces passenger wait times and increases driver utilisation.",
+  description: "Bonus Insight 2: Trip demand by hour of day and pickup community area. Aggregated across the full 2013-2023 dataset. Business value: identifies when and where demand is highest, enabling data-driven driver deployment decisions so company can decide where to put more drivers in to maximise revenue",
   columns: {
-    pickup_community_area: "Chicago community area code for the pickup location (1-77). NULL values are suppressed by the City for privacy in low-volume areas.",
+    pickup_community_area: "Chicago community area code for the pickup location (1-77). NULL values are suppressed by the City for privacy in low volume areas.",
     trip_start_hour: "Hour of day (0-23, US/Chicago local time) when the trip started.",
-    day_type: "Weekday vs Weekend classification. Demand patterns differ significantly between the two, so separating them makes the heatmap more actionable for deployment planning.",
+    day_type: "Weekday vs Weekend classification. Demand patterns differ significantly between the two, so separating them makes the heatmap more reasonable.",
     total_trips: "Total number of trips originating from this community area at this hour and day type across the full dataset.",
     avg_daily_trips: "Average number of trips per day for this community area / hour / day type combination. More comparable across day types than total_trips since there are roughly 5x more weekdays than weekend days.",
     avg_fare: "Average base fare for trips from this pickup location and hour, in USD.",

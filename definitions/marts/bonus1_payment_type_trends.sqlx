@@ -1,7 +1,7 @@
 config {
   type: "table",
   schema: "chicago_taxi_analytics",
-  description: "Bonus Insight 1: Payment type trends over time (annual). Tracks the shift from cash to card payments across the full 2013-2023 dataset. Business value: identifies the pace of cashless adoption, which informs decisions about payment terminal investment, driver incentive programs for card acceptance, and whether the fleet is keeping pace with consumer payment preferences.",
+  description: "Bonus Insight 1: Payment type trends over time (annual). Tracks the shift from cash to card payments across the full 2013-2023 dataset. Business value: identifies the pace of cashless adoption, which can help in deciding what payment method company needs to focus on.",
   columns: {
     year: "Calendar year.",
     payment_type: "Payment method as reported by the source (e.g. Cash, Credit Card, Mobile, Prcard, Dispute, Unknown).",
@@ -17,7 +17,7 @@ config {
 WITH annual_payment AS (
   SELECT
     EXTRACT(YEAR FROM trip_start_date) AS year,
-    COALESCE(NULLIF(TRIM(payment_type), ''), 'Unknown') AS payment_type,
+    COALESCE(NULLIF(TRIM(payment_type), ''), 'Unknown') AS payment_type, -- this is needed due to 3 different version empty
     COUNT(*) AS trip_count,
     ROUND(SUM(trip_total), 2) AS total_revenue,
     ROUND(AVG(fare), 2) AS avg_fare,
