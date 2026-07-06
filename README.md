@@ -187,11 +187,3 @@ bigquery-public-data.chicago_taxi_trips.taxi_trips
 ```
 
 ---
-
-## Data Quality Notes
-
-1. **Not all trips are reported.** City of Chicago acknowledges incomplete capture; treat volumes as representative, not exhaustive.
-2. **Times rounded to nearest 15 minutes** by source — affects shift duration calculations (±7.5 min per boundary).
-3. **Taxi ID is anonymized.** The same vehicle always maps to the same `taxi_id` hash, but the actual license number is not recoverable. Driver-level analysis is possible; identity is not.
-4. **Community areas suppressed in some cases** for privacy. Affected rows excluded via `WHERE pickup_community_area IS NOT NULL`.
-5. **2012 tail data:** ~31,000 trips appear with 2012 dates despite the dataset starting in 2013. Included in the pipeline; negligible impact on any analysis.
